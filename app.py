@@ -8,19 +8,8 @@ from model.cloth_masker import AutoMasker
 from model.pipeline import CatVTONPipeline
 from utils import init_weight_dtype, resize_and_crop, resize_and_padding
 
-
-def image_grid(imgs, rows, cols):
-    assert len(imgs) == rows * cols
-
-    w, h = imgs[0].size
-    grid = Image.new("RGB", size=(cols * w, rows * h))
-
-    for i, img in enumerate(imgs):
-        grid.paste(img, box=(i % cols * w, i // cols * h))
-    return grid
-
-
 repo_path = snapshot_download(repo_id="zhengchong/CatVTON")
+
 # Pipeline
 pipeline = CatVTONPipeline(
     base_ckpt="booksforcharlie/stable-diffusion-inpainting",

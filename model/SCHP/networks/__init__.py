@@ -1,9 +1,9 @@
 from __future__ import absolute_import
 
-from model.SCHP.networks.AugmentCE2P import resnet101
+from modal_catvton.model.SCHP.networks.AugmentCE2P import resnet101
 
 __factory = {
-    'resnet101': resnet101,
+    "resnet101": resnet101,
 }
 
 

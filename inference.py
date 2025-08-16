@@ -7,40 +7,63 @@ from diffusers.image_processor import VaeImageProcessor
 from tqdm import tqdm
 from PIL import Image, ImageFilter
 
-from model.pipeline import CatVTONPipeline
+from modal_catvton.model.pipeline import CatVTONPipeline
+
 
 class InferenceDataset(Dataset):
     def __init__(self, args):
         self.args = args
-    
-        self.vae_processor = VaeImageProcessor(vae_scale_factor=8) 
-        self.mask_processor = VaeImageProcessor(vae_scale_factor=8, do_normalize=False, do_binarize=True, do_convert_grayscale=True) 
+
+        self.vae_processor = VaeImageProcessor(vae_scale_factor=8)
+        self.mask_processor = VaeImageProcessor(
+            vae_scale_factor=8,
+            do_normalize=False,
+            do_binarize=True,
+            do_convert_grayscale=True,
+        )
         self.data = self.load_data()
-    
+
     def load_data(self):
         return []
-    
+
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, idx):
         data = self.data[idx]
-        person, cloth, mask = [Image.open(data[key]) for key in ['person', 'cloth', 'mask']]
+        person, cloth, mask = [
+            Image.open(data[key]) for key in ["person", "cloth", "mask"]
+        ]
         return {
-            'index': idx,
-            'person_name': data['person_name'],
-            'person': self.vae_processor.preprocess(person, self.args.height, self.args.width)[0],
-            'cloth': self.vae_processor.preprocess(cloth, self.args.height, self.args.width)[0],
-            'mask': self.mask_processor.preprocess(mask, self.args.height, self.args.width)[0]
+            "index": idx,
+            "person_name": data["person_name"],
+            "person": self.vae_processor.preprocess(
+                person, self.args.height, self.args.width
+            )[0],
+            "cloth": self.vae_processor.preprocess(
+                cloth, self.args.height, self.args.width
+            )[0],
+            "mask": self.mask_processor.preprocess(
+                mask, self.args.height, self.args.width
+            )[0],
         }
+
 
 class VITONHDTestDataset(InferenceDataset):
     def load_data(self):
-        assert os.path.exists(pair_txt:=os.path.join(self.args.data_root_path, 'test_pairs_unpaired.txt')), f"File {pair_txt} does not exist."
-        with open(pair_txt, 'r') as f:
+        assert os.path.exists(
+            pair_txt := os.path.join(
+                self.args.data_root_path, "test_pairs_unpaired.txt"
+            )
+        ), f"File {pair_txt} does not exist."
+        with open(pair_txt, "r") as f:
             lines = f.readlines()
         self.args.data_root_path = os.path.join(self.args.data_root_path, "test")
-        output_dir = os.path.join(self.args.output_dir, "vitonhd", 'unpaired' if not self.args.eval_pair else 'paired')
+        output_dir = os.path.join(
+            self.args.output_dir,
+            "vitonhd",
+            "unpaired" if not self.args.eval_pair else "paired",
+        )
         data = []
         for line in lines:
             person_img, cloth_img = line.strip().split(" ")
@@ -48,39 +71,73 @@ class VITONHDTestDataset(InferenceDataset):
                 continue
             if self.args.eval_pair:
                 cloth_img = person_img
-            data.append({
-                'person_name': person_img,
-                'person': os.path.join(self.args.data_root_path, 'image', person_img),
-                'cloth': os.path.join(self.args.data_root_path, 'cloth', cloth_img),
-                'mask': os.path.join(self.args.data_root_path, 'agnostic-mask', person_img.replace('.jpg', '_mask.png')),
-            })
+            data.append(
+                {
+                    "person_name": person_img,
+                    "person": os.path.join(
+                        self.args.data_root_path, "image", person_img
+                    ),
+                    "cloth": os.path.join(self.args.data_root_path, "cloth", cloth_img),
+                    "mask": os.path.join(
+                        self.args.data_root_path,
+                        "agnostic-mask",
+                        person_img.replace(".jpg", "_mask.png"),
+                    ),
+                }
+            )
         return data
+
 
 class DressCodeTestDataset(InferenceDataset):
     def load_data(self):
         data = []
-        for sub_folder in ['upper_body', 'lower_body', 'dresses']:
-            assert os.path.exists(os.path.join(self.args.data_root_path, sub_folder)), f"Folder {sub_folder} does not exist."
-            pair_txt = os.path.join(self.args.data_root_path, sub_folder, 'test_pairs_paired.txt' if self.args.eval_pair else 'test_pairs_unpaired.txt')
+        for sub_folder in ["upper_body", "lower_body", "dresses"]:
+            assert os.path.exists(
+                os.path.join(self.args.data_root_path, sub_folder)
+            ), f"Folder {sub_folder} does not exist."
+            pair_txt = os.path.join(
+                self.args.data_root_path,
+                sub_folder,
+                (
+                    "test_pairs_paired.txt"
+                    if self.args.eval_pair
+                    else "test_pairs_unpaired.txt"
+                ),
+            )
             assert os.path.exists(pair_txt), f"File {pair_txt} does not exist."
-            with open(pair_txt, 'r') as f:
+            with open(pair_txt, "r") as f:
                 lines = f.readlines()
 
-            output_dir = os.path.join(self.args.output_dir, f"dresscode-{self.args.height}", 
-                                      'unpaired' if not self.args.eval_pair else 'paired', sub_folder)
+            output_dir = os.path.join(
+                self.args.output_dir,
+                f"dresscode-{self.args.height}",
+                "unpaired" if not self.args.eval_pair else "paired",
+                sub_folder,
+            )
             for line in lines:
                 person_img, cloth_img = line.strip().split(" ")
                 if os.path.exists(os.path.join(output_dir, person_img)):
                     continue
-                data.append({
-                    'person_name': os.path.join(sub_folder, person_img),
-                    'person': os.path.join(self.args.data_root_path, sub_folder, 'images', person_img),
-                    'cloth': os.path.join(self.args.data_root_path, sub_folder, 'images', cloth_img),
-                    'mask': os.path.join(self.args.data_root_path, sub_folder, 'agnostic_masks', person_img.replace('.jpg', '.png'))
-                })
+                data.append(
+                    {
+                        "person_name": os.path.join(sub_folder, person_img),
+                        "person": os.path.join(
+                            self.args.data_root_path, sub_folder, "images", person_img
+                        ),
+                        "cloth": os.path.join(
+                            self.args.data_root_path, sub_folder, "images", cloth_img
+                        ),
+                        "mask": os.path.join(
+                            self.args.data_root_path,
+                            sub_folder,
+                            "agnostic_masks",
+                            person_img.replace(".jpg", ".png"),
+                        ),
+                    }
+                )
         return data
-                    
-       
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
     parser.add_argument(
@@ -95,9 +152,7 @@ def parse_args():
         "--resume_path",
         type=str,
         default="zhengchong/CatVTON",
-        help=(
-            "The Path to the checkpoint of trained tryon model."
-        ),
+        help=("The Path to the checkpoint of trained tryon model."),
     )
     parser.add_argument(
         "--dataset_name",
@@ -106,10 +161,10 @@ def parse_args():
         help="The datasets to use for evaluation.",
     )
     parser.add_argument(
-        "--data_root_path", 
-        type=str, 
+        "--data_root_path",
+        type=str,
         required=True,
-        help="Path to the dataset to evaluate."
+        help="Path to the dataset to evaluate.",
     )
     parser.add_argument(
         "--output_dir",
@@ -124,7 +179,7 @@ def parse_args():
     parser.add_argument(
         "--batch_size", type=int, default=8, help="The batch size for evaluation."
     )
-    
+
     parser.add_argument(
         "--num_inference_steps",
         type=int,
@@ -157,9 +212,9 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--repaint", 
-        action="store_true", 
-        help="Whether to repaint the result image with the original background."
+        "--repaint",
+        action="store_true",
+        help="Whether to repaint the result image with the original background.",
     )
     parser.add_argument(
         "--eval_pair",
@@ -203,7 +258,7 @@ def parse_args():
     parser.add_argument(
         "--concat_axis",
         type=str,
-        choices=["x", "y", 'random'],
+        choices=["x", "y", "random"],
         default="y",
         help="The axis to concat the cloth feature, select from ['x', 'y', 'random'].",
     )
@@ -213,7 +268,7 @@ def parse_args():
         default=True,
         help="Whether or not to enable condition noise.",
     )
-    
+
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
     if env_local_rank != -1 and env_local_rank != args.local_rank:
@@ -235,6 +290,7 @@ def repaint(person, mask, result):
     repaint_result = Image.fromarray(repaint_result.astype(np.uint8))
     return repaint_result
 
+
 def to_pil_image(images):
     images = (images / 2 + 0.5).clamp(0, 1)
     images = images.cpu().permute(0, 2, 3, 1).float().numpy()
@@ -247,6 +303,7 @@ def to_pil_image(images):
     else:
         pil_images = [Image.fromarray(image) for image in images]
     return pil_images
+
 
 @torch.no_grad()
 def main():
@@ -262,7 +319,7 @@ def main():
             "bf16": torch.bfloat16,
         }[args.mixed_precision],
         device="cuda",
-        skip_safety_check=True
+        skip_safety_check=True,
     )
     # Dataset
     if args.dataset_name == "vitonhd":
@@ -276,17 +333,21 @@ def main():
         dataset,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.dataloader_num_workers
+        num_workers=args.dataloader_num_workers,
     )
     # Inference
-    generator = torch.Generator(device='cuda').manual_seed(args.seed)
-    args.output_dir = os.path.join(args.output_dir, f"{args.dataset_name}-{args.height}", "paired" if args.eval_pair else "unpaired")
+    generator = torch.Generator(device="cuda").manual_seed(args.seed)
+    args.output_dir = os.path.join(
+        args.output_dir,
+        f"{args.dataset_name}-{args.height}",
+        "paired" if args.eval_pair else "unpaired",
+    )
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     for batch in tqdm(dataloader):
-        person_images = batch['person']
-        cloth_images = batch['cloth']
-        masks = batch['mask']
+        person_images = batch["person"]
+        cloth_images = batch["cloth"]
+        masks = batch["mask"]
         results = pipeline(
             person_images,
             cloth_images,
@@ -297,29 +358,35 @@ def main():
             width=args.width,
             generator=generator,
         )
-        
+
         if args.concat_eval_results or args.repaint:
             person_images = to_pil_image(person_images)
             cloth_images = to_pil_image(cloth_images)
             masks = to_pil_image(masks)
         for i, result in enumerate(results):
-            person_name = batch['person_name'][i]
+            person_name = batch["person_name"][i]
             output_path = os.path.join(args.output_dir, person_name)
             if not os.path.exists(os.path.dirname(output_path)):
                 os.makedirs(os.path.dirname(output_path))
             if args.repaint:
-                person_path, mask_path = dataset.data[batch['index'][i]]['person'], dataset.data[batch['index'][i]]['mask']
-                person_image= Image.open(person_path).resize(result.size, Image.LANCZOS)
+                person_path, mask_path = (
+                    dataset.data[batch["index"][i]]["person"],
+                    dataset.data[batch["index"][i]]["mask"],
+                )
+                person_image = Image.open(person_path).resize(
+                    result.size, Image.LANCZOS
+                )
                 mask = Image.open(mask_path).resize(result.size, Image.NEAREST)
                 result = repaint(person_image, mask, result)
             if args.concat_eval_results:
                 w, h = result.size
-                concated_result = Image.new('RGB', (w*3, h))
+                concated_result = Image.new("RGB", (w * 3, h))
                 concated_result.paste(person_images[i], (0, 0))
-                concated_result.paste(cloth_images[i], (w, 0))  
-                concated_result.paste(result, (w*2, 0))
+                concated_result.paste(cloth_images[i], (w, 0))
+                concated_result.paste(result, (w * 2, 0))
                 result = concated_result
             result.save(output_path)
+
 
 if __name__ == "__main__":
     main()

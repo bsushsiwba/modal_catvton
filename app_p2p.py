@@ -9,8 +9,8 @@ from diffusers.image_processor import VaeImageProcessor
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-from model.cloth_masker import AutoMasker, vis_mask
-from model.pipeline import CatVTONPipeline, CatVTONPix2PixPipeline
+from modal_catvton.model.cloth_masker import AutoMasker, vis_mask
+from modal_catvton.model.pipeline import CatVTONPipeline, CatVTONPix2PixPipeline
 from utils import init_weight_dtype, resize_and_crop, resize_and_padding
 
 
@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument(
         "--p2p_base_model_path",
         type=str,
-        default="timbrooks/instruct-pix2pix", 
+        default="timbrooks/instruct-pix2pix",
         help=(
             "The path to the base model to use for evaluation. This can be a local path or a model identifier from the Model Hub."
         ),
@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument(
         "--ip_base_model_path",
         type=str,
-        default="booksforcharlie/stable-diffusion-inpainting", 
+        default="booksforcharlie/stable-diffusion-inpainting",
         help=(
             "The path to the base model to use for evaluation. This can be a local path or a model identifier from the Model Hub."
         ),
@@ -36,17 +36,13 @@ def parse_args():
         "--p2p_resume_path",
         type=str,
         default="zhengchong/CatVTON-MaskFree",
-        help=(
-            "The Path to the checkpoint of trained tryon model."
-        ),
+        help=("The Path to the checkpoint of trained tryon model."),
     )
     parser.add_argument(
         "--ip_resume_path",
         type=str,
         default="zhengchong/CatVTON",
-        help=(
-            "The Path to the checkpoint of trained tryon model."
-        ),
+        help=("The Path to the checkpoint of trained tryon model."),
     )
     parser.add_argument(
         "--output_dir",
@@ -74,9 +70,9 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--repaint", 
-        action="store_true", 
-        help="Whether to repaint the result image with the original background."
+        "--repaint",
+        action="store_true",
+        help="Whether to repaint the result image with the original background.",
     )
     parser.add_argument(
         "--allow_tf32",
@@ -98,13 +94,14 @@ def parse_args():
             " flag passed with the `accelerate.launch` command. Use this argument to override the accelerate config."
         ),
     )
-    
+
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
     if env_local_rank != -1 and env_local_rank != args.local_rank:
         args.local_rank = env_local_rank
 
     return args
+
 
 def image_grid(imgs, rows, cols):
     assert len(imgs) == rows * cols
@@ -126,36 +123,35 @@ pipeline_p2p = CatVTONPix2PixPipeline(
     attn_ckpt_version="mix-48k-1024",
     weight_dtype=init_weight_dtype(args.mixed_precision),
     use_tf32=args.allow_tf32,
-    device='cuda'
+    device="cuda",
 )
 
 # Pipeline
-repo_path = snapshot_download(repo_id=args.ip_resume_path)  
+repo_path = snapshot_download(repo_id=args.ip_resume_path)
 pipeline = CatVTONPipeline(
     base_ckpt=args.ip_base_model_path,
     attn_ckpt=repo_path,
     attn_ckpt_version="mix",
     weight_dtype=init_weight_dtype(args.mixed_precision),
     use_tf32=args.allow_tf32,
-    device='cuda'
+    device="cuda",
 )
 
 # AutoMasker
-mask_processor = VaeImageProcessor(vae_scale_factor=8, do_normalize=False, do_binarize=True, do_convert_grayscale=True)
+mask_processor = VaeImageProcessor(
+    vae_scale_factor=8, do_normalize=False, do_binarize=True, do_convert_grayscale=True
+)
 automasker = AutoMasker(
     densepose_ckpt=os.path.join(repo_path, "DensePose"),
     schp_ckpt=os.path.join(repo_path, "SCHP"),
-    device='cuda', 
+    device="cuda",
 )
 
 
 def submit_function_p2p(
-    person_image,
-    cloth_image,
-    num_inference_steps,
-    guidance_scale,
-    seed):
-    person_image= person_image["background"]
+    person_image, cloth_image, num_inference_steps, guidance_scale, seed
+):
+    person_image = person_image["background"]
 
     tmp_folder = args.output_dir
     date_str = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -165,7 +161,7 @@ def submit_function_p2p(
 
     generator = None
     if seed != -1:
-        generator = torch.Generator(device='cuda').manual_seed(seed)
+        generator = torch.Generator(device="cuda").manual_seed(seed)
 
     person_image = Image.open(person_image).convert("RGB")
     cloth_image = Image.open(cloth_image).convert("RGB")
@@ -179,17 +175,16 @@ def submit_function_p2p(
             condition_image=cloth_image,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
-            generator=generator
+            generator=generator,
         )[0]
     except Exception as e:
-        raise gr.Error(
-            "An error occurred. Please try again later: {}".format(e)
-        )
-    
+        raise gr.Error("An error occurred. Please try again later: {}".format(e))
+
     # Post-process
     save_result_image = image_grid([person_image, cloth_image, result_image], 1, 3)
     save_result_image.save(result_save_path)
     return result_image
+
 
 def submit_function(
     person_image,
@@ -198,7 +193,7 @@ def submit_function(
     num_inference_steps,
     guidance_scale,
     seed,
-    show_type
+    show_type,
 ):
     person_image, mask = person_image["background"], person_image["layers"][0]
     mask = Image.open(mask).convert("L")
@@ -217,21 +212,18 @@ def submit_function(
 
     generator = None
     if seed != -1:
-        generator = torch.Generator(device='cuda').manual_seed(seed)
+        generator = torch.Generator(device="cuda").manual_seed(seed)
 
     person_image = Image.open(person_image).convert("RGB")
     cloth_image = Image.open(cloth_image).convert("RGB")
     person_image = resize_and_crop(person_image, (args.width, args.height))
     cloth_image = resize_and_padding(cloth_image, (args.width, args.height))
-    
+
     # Process mask
     if mask is not None:
         mask = resize_and_crop(mask, (args.width, args.height))
     else:
-        mask = automasker(
-            person_image,
-            cloth_type
-        )['mask']
+        mask = automasker(person_image, cloth_type)["mask"]
     mask = mask_processor.blur(mask, blur_factor=9)
 
     # Inference
@@ -242,16 +234,18 @@ def submit_function(
         mask=mask,
         num_inference_steps=num_inference_steps,
         guidance_scale=guidance_scale,
-        generator=generator
+        generator=generator,
     )[0]
     # except Exception as e:
     #     raise gr.Error(
     #         "An error occurred. Please try again later: {}".format(e)
     #     )
-    
+
     # Post-process
     masked_person = vis_mask(person_image, mask)
-    save_result_image = image_grid([person_image, masked_person, cloth_image, result_image], 1, 4)
+    save_result_image = image_grid(
+        [person_image, masked_person, cloth_image, result_image], 1, 4
+    )
     save_result_image.save(result_save_path)
     if show_type == "result only":
         return result_image
@@ -262,7 +256,7 @@ def submit_function(
             conditions = image_grid([person_image, cloth_image], 2, 1)
         else:
             condition_width = width // 3
-            conditions = image_grid([person_image, masked_person , cloth_image], 3, 1)
+            conditions = image_grid([person_image, masked_person, cloth_image], 3, 1)
         conditions = conditions.resize((condition_width, height), Image.NEAREST)
         new_result_image = Image.new("RGB", (width + condition_width + 5, height))
         new_result_image.paste(conditions, (0, 0))
@@ -270,9 +264,9 @@ def submit_function(
     return new_result_image
 
 
-
 def person_example_fn(image_path):
     return image_path
+
 
 HEADER = """
 <h1 style="text-align: center;"> 🐈 CatVTON: Concatenation Is All You Need for Virtual Try-On with Diffusion Models </h1>
@@ -306,6 +300,7 @@ HEADER = """
 · SafetyChecker is set to filter NSFW content, but it may block normal results too. Please adjust the <span>`seed`</span> for normal outcomes.<br> 
 """
 
+
 def app_gradio():
     with gr.Blocks(title="CatVTON") as demo:
         gr.Markdown(HEADER)
@@ -325,7 +320,9 @@ def app_gradio():
                     with gr.Row():
                         with gr.Column(scale=1, min_width=230):
                             cloth_image = gr.Image(
-                                interactive=True, label="Condition Image", type="filepath"
+                                interactive=True,
+                                label="Condition Image",
+                                type="filepath",
                             )
                         with gr.Column(scale=1, min_width=120):
                             gr.Markdown(
@@ -337,22 +334,29 @@ def app_gradio():
                                 value="upper",
                             )
 
-
                     submit = gr.Button("Submit")
                     gr.Markdown(
                         '<center><span style="color: #FF0000">!!! Click only Once, Wait for Delay !!!</span></center>'
                     )
-                    
+
                     gr.Markdown(
                         '<span style="color: #808080; font-size: small;">Advanced options can adjust details:<br>1. `Inference Step` may enhance details;<br>2. `CFG` is highly correlated with saturation;<br>3. `Random seed` may improve pseudo-shadow.</span>'
                     )
                     with gr.Accordion("Advanced Options", open=False):
                         num_inference_steps = gr.Slider(
-                            label="Inference Step", minimum=10, maximum=100, step=5, value=50
+                            label="Inference Step",
+                            minimum=10,
+                            maximum=100,
+                            step=5,
+                            value=50,
                         )
                         # Guidence Scale
                         guidance_scale = gr.Slider(
-                            label="CFG Strenth", minimum=0.0, maximum=7.5, step=0.5, value=2.5
+                            label="CFG Strenth",
+                            minimum=0.0,
+                            maximum=7.5,
+                            step=0.5,
+                            value=2.5,
                         )
                         # Random Seed
                         seed = gr.Slider(
@@ -360,7 +364,11 @@ def app_gradio():
                         )
                         show_type = gr.Radio(
                             label="Show Type",
-                            choices=["result only", "input & result", "input & mask & result"],
+                            choices=[
+                                "result only",
+                                "input & result",
+                                "input & mask & result",
+                            ],
                             value="input & mask & result",
                         )
 
@@ -373,7 +381,9 @@ def app_gradio():
                             men_exm = gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "person", "men", _)
-                                    for _ in os.listdir(os.path.join(root_path, "person", "men"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "person", "men")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=image_path,
@@ -382,7 +392,9 @@ def app_gradio():
                             women_exm = gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "person", "women", _)
-                                    for _ in os.listdir(os.path.join(root_path, "person", "women"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "person", "women")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=image_path,
@@ -395,7 +407,9 @@ def app_gradio():
                             condition_upper_exm = gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "condition", "upper", _)
-                                    for _ in os.listdir(os.path.join(root_path, "condition", "upper"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "condition", "upper")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=cloth_image,
@@ -404,7 +418,9 @@ def app_gradio():
                             condition_overall_exm = gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "condition", "overall", _)
-                                    for _ in os.listdir(os.path.join(root_path, "condition", "overall"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "condition", "overall")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=cloth_image,
@@ -413,7 +429,9 @@ def app_gradio():
                             condition_person_exm = gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "condition", "person", _)
-                                    for _ in os.listdir(os.path.join(root_path, "condition", "person"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "condition", "person")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=cloth_image,
@@ -440,7 +458,7 @@ def app_gradio():
                     ],
                     result_image,
                 )
-    
+
         with gr.Tab("Mask-Free Virtual Try-On"):
             with gr.Row():
                 with gr.Column(scale=1, min_width=350):
@@ -457,24 +475,34 @@ def app_gradio():
                     with gr.Row():
                         with gr.Column(scale=1, min_width=230):
                             cloth_image_p2p = gr.Image(
-                                interactive=True, label="Condition Image", type="filepath"
+                                interactive=True,
+                                label="Condition Image",
+                                type="filepath",
                             )
 
                     submit_p2p = gr.Button("Submit")
                     gr.Markdown(
                         '<center><span style="color: #FF0000">!!! Click only Once, Wait for Delay !!!</span></center>'
                     )
-                    
+
                     gr.Markdown(
                         '<span style="color: #808080; font-size: small;">Advanced options can adjust details:<br>1. `Inference Step` may enhance details;<br>2. `CFG` is highly correlated with saturation;<br>3. `Random seed` may improve pseudo-shadow.</span>'
                     )
                     with gr.Accordion("Advanced Options", open=False):
                         num_inference_steps_p2p = gr.Slider(
-                            label="Inference Step", minimum=10, maximum=100, step=5, value=50
+                            label="Inference Step",
+                            minimum=10,
+                            maximum=100,
+                            step=5,
+                            value=50,
                         )
                         # Guidence Scale
                         guidance_scale_p2p = gr.Slider(
-                            label="CFG Strenth", minimum=0.0, maximum=7.5, step=0.5, value=2.5
+                            label="CFG Strenth",
+                            minimum=0.0,
+                            maximum=7.5,
+                            step=0.5,
+                            value=2.5,
                         )
                         # Random Seed
                         seed_p2p = gr.Slider(
@@ -495,7 +523,9 @@ def app_gradio():
                             gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "person", "men", _)
-                                    for _ in os.listdir(os.path.join(root_path, "person", "men"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "person", "men")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=image_path_p2p,
@@ -504,7 +534,9 @@ def app_gradio():
                             gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "person", "women", _)
-                                    for _ in os.listdir(os.path.join(root_path, "person", "women"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "person", "women")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=image_path_p2p,
@@ -517,7 +549,9 @@ def app_gradio():
                             gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "condition", "upper", _)
-                                    for _ in os.listdir(os.path.join(root_path, "condition", "upper"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "condition", "upper")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=cloth_image_p2p,
@@ -526,7 +560,9 @@ def app_gradio():
                             gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "condition", "overall", _)
-                                    for _ in os.listdir(os.path.join(root_path, "condition", "overall"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "condition", "overall")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=cloth_image_p2p,
@@ -535,7 +571,9 @@ def app_gradio():
                             condition_person_exm = gr.Examples(
                                 examples=[
                                     os.path.join(root_path, "condition", "person", _)
-                                    for _ in os.listdir(os.path.join(root_path, "condition", "person"))
+                                    for _ in os.listdir(
+                                        os.path.join(root_path, "condition", "person")
+                                    )
                                 ],
                                 examples_per_page=4,
                                 inputs=cloth_image_p2p,
@@ -556,10 +594,11 @@ def app_gradio():
                         cloth_image_p2p,
                         num_inference_steps_p2p,
                         guidance_scale_p2p,
-                        seed_p2p],
+                        seed_p2p,
+                    ],
                     result_image_p2p,
                 )
-        
+
     demo.queue().launch(share=True, show_error=True)
 
 

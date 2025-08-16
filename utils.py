@@ -43,7 +43,9 @@ def compute_dream_and_update_latents_for_inpaint(
     Returns:
         `tuple[torch.Tensor, torch.Tensor]`: Adjusted noisy_latents and target.
     """
-    alphas_cumprod = noise_scheduler.alphas_cumprod.to(timesteps.device)[timesteps, None, None, None]
+    alphas_cumprod = noise_scheduler.alphas_cumprod.to(timesteps.device)[
+        timesteps, None, None, None
+    ]
     sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
 
     # The paper uses lambda = sqrt(1 - alpha) ** p, with p = 1 in their experiments.
@@ -59,19 +61,24 @@ def compute_dream_and_update_latents_for_inpaint(
         predicted_noise = pred
         delta_noise = (noise - predicted_noise).detach()
         delta_noise.mul_(dream_lambda)
-        _noisy_latents = noisy_latents_no_condition.add(sqrt_one_minus_alphas_cumprod * delta_noise)
+        _noisy_latents = noisy_latents_no_condition.add(
+            sqrt_one_minus_alphas_cumprod * delta_noise
+        )
         _target = target.add(delta_noise)
     elif noise_scheduler.config.prediction_type == "v_prediction":
         raise NotImplementedError("DREAM has not been implemented for v-prediction")
     else:
-        raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
-    
+        raise ValueError(
+            f"Unknown prediction type {noise_scheduler.config.prediction_type}"
+        )
+
     _noisy_latents = torch.cat([_noisy_latents, noisy_latents[:, 4:]], dim=1)
     return _noisy_latents, _target
 
+
 # Prepare the input for inpainting model.
 def prepare_inpainting_input(
-    noisy_latents: torch.Tensor, 
+    noisy_latents: torch.Tensor,
     mask_latents: torch.Tensor,
     condition_latents: torch.Tensor,
     enable_condition_noise: bool = True,
@@ -79,21 +86,24 @@ def prepare_inpainting_input(
 ) -> torch.Tensor:
     """
     Prepare the input for inpainting model.
-    
+
     Args:
         noisy_latents (torch.Tensor): Noisy latents.
         mask_latents (torch.Tensor): Mask latents.
         condition_latents (torch.Tensor): Condition latents.
         enable_condition_noise (bool): Enable condition noise.
-    
+
     Returns:
         torch.Tensor: Inpainting input.
     """
     if not enable_condition_noise:
         condition_latents_ = condition_latents.chunk(2, dim=condition_concat_dim)[-1]
-        noisy_latents = torch.cat([noisy_latents, condition_latents_], dim=condition_concat_dim)
+        noisy_latents = torch.cat(
+            [noisy_latents, condition_latents_], dim=condition_concat_dim
+        )
     noisy_latents = torch.cat([noisy_latents, mask_latents, condition_latents], dim=1)
     return noisy_latents
+
 
 # Compute VAE encodings
 def compute_vae_encodings(image: torch.Tensor, vae: torch.nn.Module) -> torch.Tensor:
@@ -117,6 +127,7 @@ def compute_vae_encodings(image: torch.Tensor, vae: torch.nn.Module) -> torch.Te
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import ProjectConfiguration
 
+
 def init_accelerator(config):
     accelerator_project_config = ProjectConfiguration(
         project_dir=config.project_name,
@@ -133,7 +144,7 @@ def init_accelerator(config):
     # Disable AMP for MPS.
     if torch.backends.mps.is_available():
         accelerator.native_amp = False
-        
+
     if accelerator.is_main_process:
         accelerator.init_trackers(
             project_name=config.project_name,
@@ -143,7 +154,7 @@ def init_accelerator(config):
                 "image_size": f"{config.width}x{config.height}",
             },
         )
-        
+
     return accelerator
 
 
@@ -169,7 +180,11 @@ def init_add_item_id(config):
 
 
 def repaint_result(result, person_image, mask_image):
-    result, person, mask = np.array(result), np.array(person_image), np.array(mask_image)
+    result, person, mask = (
+        np.array(result),
+        np.array(person_image),
+        np.array(mask_image),
+    )
     # expand the mask to 3 channels & to 0~1
     mask = np.expand_dims(mask, axis=2)
     mask = mask / 255.0
@@ -346,7 +361,6 @@ def is_xformers_available():
         )
 
 
-
 def resize_and_crop(image, size):
     # Crop to size ratio
     w, h = image.size
@@ -382,9 +396,15 @@ def resize_and_padding(image, size):
     return padding
 
 
-def scan_files_in_dir(directory, postfix: Set[str] = None, progress_bar: tqdm = None) -> list:
+def scan_files_in_dir(
+    directory, postfix: Set[str] = None, progress_bar: tqdm = None
+) -> list:
     file_list = []
-    progress_bar = tqdm(total=0, desc=f"Scanning", ncols=100) if progress_bar is None else progress_bar
+    progress_bar = (
+        tqdm(total=0, desc=f"Scanning", ncols=100)
+        if progress_bar is None
+        else progress_bar
+    )
     for entry in os.scandir(directory):
         if entry.is_file():
             if postfix is None or os.path.splitext(entry.path)[1] in postfix:
@@ -392,8 +412,44 @@ def scan_files_in_dir(directory, postfix: Set[str] = None, progress_bar: tqdm = 
                 progress_bar.total += 1
                 progress_bar.update(1)
         elif entry.is_dir():
-            file_list += scan_files_in_dir(entry.path, postfix=postfix, progress_bar=progress_bar)
+            file_list += scan_files_in_dir(
+                entry.path, postfix=postfix, progress_bar=progress_bar
+            )
     return file_list
+
+
+def process_single_request(
+    automasker, mask_processor, pipeline, person_image, garment_image, garment_type
+):
+    try:
+        # Load images
+        person_img = person_image.convert("RGB")
+        cloth_img = garment_image.convert("RGB")
+
+        # Resize images
+        person_img = resize_and_crop(person_img, (768, 1024))
+        cloth_img = resize_and_padding(cloth_img, (768, 1024))
+
+        # Generate mask for specified garment type
+        mask = automasker(person_img, garment_type)["mask"]
+        mask = mask_processor.blur(mask, blur_factor=9)
+
+        # Process with pipeline
+        result = pipeline(
+            image=person_img,
+            condition_image=cloth_img,
+            mask=mask,
+            num_inference_steps=50,
+            guidance_scale=2.5,
+            generator=torch.Generator(device="cuda").manual_seed(42),
+        )[0]
+
+        return result
+
+    except Exception as e:
+        print(f"Error processing file-based request: {e}")
+        return None
+
 
 if __name__ == "__main__":
     ...

@@ -6,7 +6,7 @@ from PIL import Image
 
 from model.cloth_masker import AutoMasker
 from model.pipeline import CatVTONPipeline
-from utils import init_weight_dtype, resize_and_crop, resize_and_padding
+from utils import init_weight_dtype, process_single_request
 
 repo_path = snapshot_download(repo_id="zhengchong/CatVTON")
 
@@ -31,44 +31,16 @@ automasker = AutoMasker(
 )
 
 
-def process_single_request(person_image, garment_image, garment_type):
-    try:
-        # Load images
-        person_img = person_image.convert("RGB")
-        cloth_img = garment_image.convert("RGB")
-
-        # Resize images
-        person_img = resize_and_crop(person_img, (768, 1024))
-        cloth_img = resize_and_padding(cloth_img, (768, 1024))
-
-        # Generate mask for specified garment type
-        mask = automasker(person_img, garment_type)["mask"]
-        mask = mask_processor.blur(mask, blur_factor=9)
-
-        # Process with pipeline
-        result = pipeline(
-            image=person_img,
-            condition_image=cloth_img,
-            mask=mask,
-            num_inference_steps=50,
-            guidance_scale=2.5,
-            generator=torch.Generator(device="cuda").manual_seed(42),
-        )[0]
-
-        return result
-
-    except Exception as e:
-        print(f"Error processing file-based request: {e}")
-        return None
-
-
 if __name__ == "__main__":
     temp = process_single_request(
+        pipeline,
+        automasker,
+        mask_processor,
         Image.open("person_image.png"),
         Image.open("cloth_image.png"),
         "overall",
     )
 
     if temp:
-        temp.save("output_image.png")
+        temp.save("cat_result.png")
         print("Image processed and saved as output_image.png")

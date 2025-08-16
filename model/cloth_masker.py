@@ -6,8 +6,8 @@ import cv2
 from diffusers.image_processor import VaeImageProcessor
 import torch
 
-from modal_catvton.model.SCHP import SCHP  # type: ignore
-from modal_catvton.model.DensePose import DensePose  # type: ignore
+from model.SCHP import SCHP  # type: ignore
+from model.DensePose import DensePose  # type: ignore
 
 DENSE_INDEX_MAP = {
     "background": [0],

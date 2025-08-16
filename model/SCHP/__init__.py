@@ -1,5 +1,5 @@
-from modal_catvton.model.SCHP import networks
-from modal_catvton.model.SCHP.utils.transforms import (
+from model.SCHP import networks
+from model.SCHP.utils.transforms import (
     get_affine_transform,
     transform_logits,
 )

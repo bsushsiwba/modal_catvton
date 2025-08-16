@@ -9,8 +9,8 @@ from diffusers.image_processor import VaeImageProcessor
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-from modal_catvton.model.cloth_masker import AutoMasker, vis_mask
-from modal_catvton.model.pipeline import CatVTONPipeline, CatVTONPix2PixPipeline
+from model.cloth_masker import AutoMasker, vis_mask
+from model.pipeline import CatVTONPipeline, CatVTONPix2PixPipeline
 from utils import init_weight_dtype, resize_and_crop, resize_and_padding
 
 

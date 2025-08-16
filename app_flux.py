@@ -9,8 +9,8 @@ from diffusers.image_processor import VaeImageProcessor
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-from modal_catvton.model.cloth_masker import AutoMasker, vis_mask
-from modal_catvton.model.flux.pipeline_flux_tryon import FluxTryOnPipeline
+from model.cloth_masker import AutoMasker, vis_mask
+from model.flux.pipeline_flux_tryon import FluxTryOnPipeline
 from utils import resize_and_crop, resize_and_padding
 
 

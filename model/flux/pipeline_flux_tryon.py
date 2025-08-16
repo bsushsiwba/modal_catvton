@@ -20,7 +20,7 @@ from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 from diffusers.utils import logging
 from diffusers.utils.torch_utils import randn_tensor
 
-from modal_catvton.model.flux.transformer_flux import FluxTransformer2DModel
+from model.flux.transformer_flux import FluxTransformer2DModel
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 

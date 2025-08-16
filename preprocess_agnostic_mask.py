@@ -4,7 +4,7 @@ import os
 from huggingface_hub import snapshot_download
 from tqdm import tqdm
 
-from modal_catvton.model.cloth_masker import AutoMasker
+from model.cloth_masker import AutoMasker
 
 
 def parse_args():

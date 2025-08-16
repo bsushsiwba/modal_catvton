@@ -15,8 +15,8 @@ from diffusers.utils.torch_utils import randn_tensor
 from huggingface_hub import snapshot_download
 from transformers import CLIPImageProcessor
 
-from modal_catvton.model.attn_processor import SkipAttnProcessor
-from modal_catvton.model.utils import get_trainable_module, init_adapter
+from model.attn_processor import SkipAttnProcessor
+from model.utils import get_trainable_module, init_adapter
 from utils import (
     compute_vae_encodings,
     numpy_to_pil,

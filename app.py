@@ -4,8 +4,8 @@ from diffusers.image_processor import VaeImageProcessor
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-from modal_catvton.model.cloth_masker import AutoMasker
-from modal_catvton.model.pipeline import CatVTONPipeline
+from model.cloth_masker import AutoMasker
+from model.pipeline import CatVTONPipeline
 from modal_catvton.utils import init_weight_dtype, resize_and_crop, resize_and_padding
 
 repo_path = snapshot_download(repo_id="zhengchong/CatVTON")

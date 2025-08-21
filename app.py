@@ -33,9 +33,9 @@ automasker = AutoMasker(
 
 if __name__ == "__main__":
     temp = process_single_request(
-        pipeline,
         automasker,
         mask_processor,
+        pipeline,
         Image.open("human.png"),
         Image.open("garment.png"),
         "overall",

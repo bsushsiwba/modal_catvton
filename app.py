@@ -36,8 +36,8 @@ if __name__ == "__main__":
         pipeline,
         automasker,
         mask_processor,
-        Image.open("person_image.png"),
-        Image.open("cloth_image.png"),
+        Image.open("human.png"),
+        Image.open("garment.png"),
         "overall",
     )
 

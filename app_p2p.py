@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="resource/demo/output",
+        default="resource1/demo/output",
         help="The output directory where the model predictions will be written.",
     )
 
@@ -376,7 +376,7 @@ def app_gradio():
                     result_image = gr.Image(interactive=False, label="Result")
                     with gr.Row():
                         # Photo Examples
-                        root_path = "resource/demo/example"
+                        root_path = "resource1/demo/example"
                         with gr.Column():
                             men_exm = gr.Examples(
                                 examples=[
@@ -518,7 +518,7 @@ def app_gradio():
                     result_image_p2p = gr.Image(interactive=False, label="Result")
                     with gr.Row():
                         # Photo Examples
-                        root_path = "resource/demo/example"
+                        root_path = "resource1/demo/example"
                         with gr.Column():
                             gr.Examples(
                                 examples=[

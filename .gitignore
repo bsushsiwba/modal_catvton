@@ -3,8 +3,8 @@ model/__pycache__
 model/DensePose/__pycache__
 model/SCHP/__pycache__
 model/SCHP/*/__pycache__
-resource/demo/output
-resource/demo/example/.DS_Store
+resource1/demo/output
+resource1/demo/example/.DS_Store
 .vscode
 playground.py
 output

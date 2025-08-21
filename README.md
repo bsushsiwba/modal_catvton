@@ -27,7 +27,7 @@
 
 **CatVTON** is a simple and efficient virtual try-on diffusion model with ***1) Lightweight Network (899.06M parameters totally)***, ***2) Parameter-Efficient Training (49.57M parameters trainable)*** and ***3) Simplified Inference (< 8G VRAM for 1024X768 resolution)***.
 <div align="center">
-  <img src="resource/img/teaser.jpg" width="100%" height="100%"/>
+  <img src="resource1/img/teaser.jpg" width="100%" height="100%"/>
 </div>
 
 
@@ -78,11 +78,11 @@ To deploy CatVTON to your ComfyUI, follow these steps:
 When you run the CatVTON workflow for the first time, the weight files will be automatically downloaded, usually taking dozens of minutes.
 
 <div align="center">
-  <img src="resource/img/comfyui-1.png" width="100%" height="100%"/>
+  <img src="resource1/img/comfyui-1.png" width="100%" height="100%"/>
 </div>
 
 <!-- <div align="center">
- <img src="resource/img/comfyui.png" width="100%" height="100%"/>
+ <img src="resource1/img/comfyui.png" width="100%" height="100%"/>
 </div> -->
 
 ### Gradio App
@@ -91,7 +91,7 @@ To deploy the Gradio App for CatVTON on your machine, run the following command,
 
 ```PowerShell
 CUDA_VISIBLE_DEVICES=0 python app.py \
---output_dir="resource/demo/output" \
+--output_dir="resource1/demo/output" \
 --mixed_precision="bf16" \
 --allow_tf32 
 ```

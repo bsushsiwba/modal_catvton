@@ -4,8 +4,8 @@ from diffusers.image_processor import VaeImageProcessor
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-from model.cloth_masker import AutoMasker
-from model.pipeline import CatVTONPipeline
+from model1.cloth_masker import AutoMasker
+from model1.pipeline import CatVTONPipeline
 from utils import init_weight_dtype, process_single_request
 
 repo_path = snapshot_download(repo_id="zhengchong/CatVTON")

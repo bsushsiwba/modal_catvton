@@ -342,7 +342,7 @@ class COCOEvaluator(DatasetEvaluator):
         Derive the desired score numbers from summarized COCOeval.
 
         Args:
-            coco_eval (None or COCOEval): None represents no predictions from model.
+            coco_eval (None or COCOEval): None represents no predictions from model1.
             iou_type (str):
             class_names (None or list[str]): if provided, will use it to predict
                 per-category AP.

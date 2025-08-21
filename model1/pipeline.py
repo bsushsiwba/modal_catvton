@@ -8,26 +8,33 @@ import torch
 import tqdm
 from accelerate import load_checkpoint_in_model
 from diffusers import AutoencoderKL, DDIMScheduler, UNet2DConditionModel
-from diffusers.pipelines.stable_diffusion.safety_checker import \
-    StableDiffusionSafetyChecker
+from diffusers.pipelines.stable_diffusion.safety_checker import (
+    StableDiffusionSafetyChecker,
+)
 from diffusers.utils.torch_utils import randn_tensor
 from huggingface_hub import snapshot_download
 from transformers import CLIPImageProcessor
 
-from model.attn_processor import SkipAttnProcessor
-from model.utils import get_trainable_module, init_adapter
-from utils import (compute_vae_encodings, numpy_to_pil, prepare_image,
-                   prepare_mask_image, resize_and_crop, resize_and_padding)
+from model1.attn_processor import SkipAttnProcessor
+from model1.utils import get_trainable_module, init_adapter
+from utils import (
+    compute_vae_encodings,
+    numpy_to_pil,
+    prepare_image,
+    prepare_mask_image,
+    resize_and_crop,
+    resize_and_padding,
+)
 
 
 class CatVTONPipeline:
     def __init__(
-        self, 
-        base_ckpt, 
-        attn_ckpt, 
+        self,
+        base_ckpt,
+        attn_ckpt,
         attn_ckpt_version="mix",
         weight_dtype=torch.float32,
-        device='cuda',
+        device="cuda",
         compile=False,
         skip_safety_check=False,
         use_tf32=True,
@@ -36,20 +43,32 @@ class CatVTONPipeline:
         self.weight_dtype = weight_dtype
         self.skip_safety_check = skip_safety_check
 
-        self.noise_scheduler = DDIMScheduler.from_pretrained(base_ckpt, subfolder="scheduler")
-        self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device, dtype=weight_dtype)
+        self.noise_scheduler = DDIMScheduler.from_pretrained(
+            base_ckpt, subfolder="scheduler"
+        )
+        self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(
+            device, dtype=weight_dtype
+        )
         if not skip_safety_check:
-            self.feature_extractor = CLIPImageProcessor.from_pretrained(base_ckpt, subfolder="feature_extractor")
-            self.safety_checker = StableDiffusionSafetyChecker.from_pretrained(base_ckpt, subfolder="safety_checker").to(device, dtype=weight_dtype)
-        self.unet = UNet2DConditionModel.from_pretrained(base_ckpt, subfolder="unet").to(device, dtype=weight_dtype)
-        init_adapter(self.unet, cross_attn_cls=SkipAttnProcessor)  # Skip Cross-Attention
+            self.feature_extractor = CLIPImageProcessor.from_pretrained(
+                base_ckpt, subfolder="feature_extractor"
+            )
+            self.safety_checker = StableDiffusionSafetyChecker.from_pretrained(
+                base_ckpt, subfolder="safety_checker"
+            ).to(device, dtype=weight_dtype)
+        self.unet = UNet2DConditionModel.from_pretrained(
+            base_ckpt, subfolder="unet"
+        ).to(device, dtype=weight_dtype)
+        init_adapter(
+            self.unet, cross_attn_cls=SkipAttnProcessor
+        )  # Skip Cross-Attention
         self.attn_modules = get_trainable_module(self.unet, "attention")
         self.auto_attn_ckpt_load(attn_ckpt, attn_ckpt_version)
         # Pytorch 2.0 Compile
         if compile:
             self.unet = torch.compile(self.unet)
             self.vae = torch.compile(self.vae, mode="reduce-overhead")
-            
+
         # Enable TF32 for faster training on Ampere GPUs (A100 and RTX 30 series).
         if use_tf32:
             torch.set_float32_matmul_precision("high")
@@ -62,31 +81,42 @@ class CatVTONPipeline:
             "dresscode": "dresscode-16k-512",
         }[version]
         if os.path.exists(attn_ckpt):
-            load_checkpoint_in_model(self.attn_modules, os.path.join(attn_ckpt, sub_folder, 'attention'))
+            load_checkpoint_in_model(
+                self.attn_modules, os.path.join(attn_ckpt, sub_folder, "attention")
+            )
         else:
             repo_path = snapshot_download(repo_id=attn_ckpt)
             print(f"Downloaded {attn_ckpt} to {repo_path}")
-            load_checkpoint_in_model(self.attn_modules, os.path.join(repo_path, sub_folder, 'attention'))
-            
+            load_checkpoint_in_model(
+                self.attn_modules, os.path.join(repo_path, sub_folder, "attention")
+            )
+
     def run_safety_checker(self, image):
         if self.safety_checker is None:
             has_nsfw_concept = None
         else:
-            safety_checker_input = self.feature_extractor(image, return_tensors="pt").to(self.device)
+            safety_checker_input = self.feature_extractor(
+                image, return_tensors="pt"
+            ).to(self.device)
             image, has_nsfw_concept = self.safety_checker(
-                images=image, clip_input=safety_checker_input.pixel_values.to(self.weight_dtype)
+                images=image,
+                clip_input=safety_checker_input.pixel_values.to(self.weight_dtype),
             )
         return image, has_nsfw_concept
-    
+
     def check_inputs(self, image, condition_image, mask, width, height):
-        if isinstance(image, torch.Tensor) and isinstance(condition_image, torch.Tensor) and isinstance(mask, torch.Tensor):
+        if (
+            isinstance(image, torch.Tensor)
+            and isinstance(condition_image, torch.Tensor)
+            and isinstance(mask, torch.Tensor)
+        ):
             return image, condition_image, mask
         assert image.size == mask.size, "Image and mask must have the same size"
         image = resize_and_crop(image, (width, height))
         mask = resize_and_crop(mask, (width, height))
         condition_image = resize_and_padding(condition_image, (width, height))
         return image, condition_image, mask
-    
+
     def prepare_extra_step_kwargs(self, generator, eta):
         # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
         # eta (η) is only used with the DDIMScheduler, it will be ignored for other schedulers.
@@ -110,7 +140,7 @@ class CatVTONPipeline:
 
     @torch.no_grad()
     def __call__(
-        self, 
+        self,
         image: Union[PIL.Image.Image, torch.Tensor],
         condition_image: Union[PIL.Image.Image, torch.Tensor],
         mask: Union[PIL.Image.Image, torch.Tensor],
@@ -120,24 +150,34 @@ class CatVTONPipeline:
         width: int = 768,
         generator=None,
         eta=1.0,
-        **kwargs
+        **kwargs,
     ):
         concat_dim = -2  # FIXME: y axis concat
         # Prepare inputs to Tensor
-        image, condition_image, mask = self.check_inputs(image, condition_image, mask, width, height)
+        image, condition_image, mask = self.check_inputs(
+            image, condition_image, mask, width, height
+        )
         image = prepare_image(image).to(self.device, dtype=self.weight_dtype)
-        condition_image = prepare_image(condition_image).to(self.device, dtype=self.weight_dtype)
+        condition_image = prepare_image(condition_image).to(
+            self.device, dtype=self.weight_dtype
+        )
         mask = prepare_mask_image(mask).to(self.device, dtype=self.weight_dtype)
         # Mask image
         masked_image = image * (mask < 0.5)
         # VAE encoding
         masked_latent = compute_vae_encodings(masked_image, self.vae)
         condition_latent = compute_vae_encodings(condition_image, self.vae)
-        mask_latent = torch.nn.functional.interpolate(mask, size=masked_latent.shape[-2:], mode="nearest")
+        mask_latent = torch.nn.functional.interpolate(
+            mask, size=masked_latent.shape[-2:], mode="nearest"
+        )
         del image, mask, condition_image
         # Concatenate latents
-        masked_latent_concat = torch.cat([masked_latent, condition_latent], dim=concat_dim)
-        mask_latent_concat = torch.cat([mask_latent, torch.zeros_like(mask_latent)], dim=concat_dim)
+        masked_latent_concat = torch.cat(
+            [masked_latent, condition_latent], dim=concat_dim
+        )
+        mask_latent_concat = torch.cat(
+            [mask_latent, torch.zeros_like(mask_latent)], dim=concat_dim
+        )
         # Prepare noise
         latents = randn_tensor(
             masked_latent_concat.shape,
@@ -153,7 +193,10 @@ class CatVTONPipeline:
         if do_classifier_free_guidance := (guidance_scale > 1.0):
             masked_latent_concat = torch.cat(
                 [
-                    torch.cat([masked_latent, torch.zeros_like(condition_latent)], dim=concat_dim),
+                    torch.cat(
+                        [masked_latent, torch.zeros_like(condition_latent)],
+                        dim=concat_dim,
+                    ),
                     masked_latent_concat,
                 ]
             )
@@ -161,19 +204,34 @@ class CatVTONPipeline:
 
         # Denoising loop
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
-        num_warmup_steps = (len(timesteps) - num_inference_steps * self.noise_scheduler.order)
+        num_warmup_steps = (
+            len(timesteps) - num_inference_steps * self.noise_scheduler.order
+        )
         with tqdm.tqdm(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
-                non_inpainting_latent_model_input = (torch.cat([latents] * 2) if do_classifier_free_guidance else latents)
-                non_inpainting_latent_model_input = self.noise_scheduler.scale_model_input(non_inpainting_latent_model_input, t)
+                non_inpainting_latent_model_input = (
+                    torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                )
+                non_inpainting_latent_model_input = (
+                    self.noise_scheduler.scale_model_input(
+                        non_inpainting_latent_model_input, t
+                    )
+                )
                 # prepare the input for the inpainting model
-                inpainting_latent_model_input = torch.cat([non_inpainting_latent_model_input, mask_latent_concat, masked_latent_concat], dim=1)
+                inpainting_latent_model_input = torch.cat(
+                    [
+                        non_inpainting_latent_model_input,
+                        mask_latent_concat,
+                        masked_latent_concat,
+                    ],
+                    dim=1,
+                )
                 # predict the noise residual
-                noise_pred= self.unet(
+                noise_pred = self.unet(
                     inpainting_latent_model_input,
                     t.to(self.device),
-                    encoder_hidden_states=None, # FIXME
+                    encoder_hidden_states=None,  # FIXME
                     return_dict=False,
                 )[0]
                 # perform guidance
@@ -201,11 +259,13 @@ class CatVTONPipeline:
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
         image = image.cpu().permute(0, 2, 3, 1).float().numpy()
         image = numpy_to_pil(image)
-        
+
         # Safety Check
         if not self.skip_safety_check:
             current_script_directory = os.path.dirname(os.path.realpath(__file__))
-            nsfw_image = os.path.join(os.path.dirname(current_script_directory), 'resource', 'img', 'NSFW.jpg')
+            nsfw_image = os.path.join(
+                os.path.dirname(current_script_directory), "resource", "img", "NSFW.jpg"
+            )
             nsfw_image = PIL.Image.open(nsfw_image).resize(image[0].size)
             image_np = np.array(image)
             _, has_nsfw_concept = self.run_safety_checker(image=image_np)
@@ -219,14 +279,22 @@ class CatVTONPix2PixPipeline(CatVTONPipeline):
     def auto_attn_ckpt_load(self, attn_ckpt, version):
         # TODO: Temperal fix for the model version
         if os.path.exists(attn_ckpt):
-            load_checkpoint_in_model(self.attn_modules, os.path.join(attn_ckpt, version, 'attention'))
+            load_checkpoint_in_model(
+                self.attn_modules, os.path.join(attn_ckpt, version, "attention")
+            )
         else:
             repo_path = snapshot_download(repo_id=attn_ckpt)
             print(f"Downloaded {attn_ckpt} to {repo_path}")
-            load_checkpoint_in_model(self.attn_modules, os.path.join(repo_path, version, 'attention'))
-    
+            load_checkpoint_in_model(
+                self.attn_modules, os.path.join(repo_path, version, "attention")
+            )
+
     def check_inputs(self, image, condition_image, width, height):
-        if isinstance(image, torch.Tensor) and isinstance(condition_image, torch.Tensor) and isinstance(torch.Tensor):
+        if (
+            isinstance(image, torch.Tensor)
+            and isinstance(condition_image, torch.Tensor)
+            and isinstance(torch.Tensor)
+        ):
             return image, condition_image
         image = resize_and_crop(image, (width, height))
         condition_image = resize_and_padding(condition_image, (width, height))
@@ -234,7 +302,7 @@ class CatVTONPix2PixPipeline(CatVTONPipeline):
 
     @torch.no_grad()
     def __call__(
-        self, 
+        self,
         image: Union[PIL.Image.Image, torch.Tensor],
         condition_image: Union[PIL.Image.Image, torch.Tensor],
         num_inference_steps: int = 50,
@@ -243,19 +311,25 @@ class CatVTONPix2PixPipeline(CatVTONPipeline):
         width: int = 768,
         generator=None,
         eta=1.0,
-        **kwargs
+        **kwargs,
     ):
         concat_dim = -1
         # Prepare inputs to Tensor
-        image, condition_image = self.check_inputs(image, condition_image, width, height)
+        image, condition_image = self.check_inputs(
+            image, condition_image, width, height
+        )
         image = prepare_image(image).to(self.device, dtype=self.weight_dtype)
-        condition_image = prepare_image(condition_image).to(self.device, dtype=self.weight_dtype)
+        condition_image = prepare_image(condition_image).to(
+            self.device, dtype=self.weight_dtype
+        )
         # VAE encoding
         image_latent = compute_vae_encodings(image, self.vae)
         condition_latent = compute_vae_encodings(condition_image, self.vae)
         del image, condition_image
         # Concatenate latents
-        condition_latent_concat = torch.cat([image_latent, condition_latent], dim=concat_dim)
+        condition_latent_concat = torch.cat(
+            [image_latent, condition_latent], dim=concat_dim
+        )
         # Prepare noise
         latents = randn_tensor(
             condition_latent_concat.shape,
@@ -271,26 +345,37 @@ class CatVTONPix2PixPipeline(CatVTONPipeline):
         if do_classifier_free_guidance := (guidance_scale > 1.0):
             condition_latent_concat = torch.cat(
                 [
-                    torch.cat([image_latent, torch.zeros_like(condition_latent)], dim=concat_dim),
+                    torch.cat(
+                        [image_latent, torch.zeros_like(condition_latent)],
+                        dim=concat_dim,
+                    ),
                     condition_latent_concat,
                 ]
             )
 
         # Denoising loop
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
-        num_warmup_steps = (len(timesteps) - num_inference_steps * self.noise_scheduler.order)
+        num_warmup_steps = (
+            len(timesteps) - num_inference_steps * self.noise_scheduler.order
+        )
         with tqdm.tqdm(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
-                latent_model_input = (torch.cat([latents] * 2) if do_classifier_free_guidance else latents)
-                latent_model_input = self.noise_scheduler.scale_model_input(latent_model_input, t)
+                latent_model_input = (
+                    torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                )
+                latent_model_input = self.noise_scheduler.scale_model_input(
+                    latent_model_input, t
+                )
                 # prepare the input for the inpainting model
-                p2p_latent_model_input = torch.cat([latent_model_input, condition_latent_concat], dim=1)
+                p2p_latent_model_input = torch.cat(
+                    [latent_model_input, condition_latent_concat], dim=1
+                )
                 # predict the noise residual
-                noise_pred= self.unet(
+                noise_pred = self.unet(
                     p2p_latent_model_input,
                     t.to(self.device),
-                    encoder_hidden_states=None, 
+                    encoder_hidden_states=None,
                     return_dict=False,
                 )[0]
                 # perform guidance
@@ -318,11 +403,13 @@ class CatVTONPix2PixPipeline(CatVTONPipeline):
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
         image = image.cpu().permute(0, 2, 3, 1).float().numpy()
         image = numpy_to_pil(image)
-        
+
         # Safety Check
         if not self.skip_safety_check:
             current_script_directory = os.path.dirname(os.path.realpath(__file__))
-            nsfw_image = os.path.join(os.path.dirname(current_script_directory), 'resource', 'img', 'NSFW.jpg')
+            nsfw_image = os.path.join(
+                os.path.dirname(current_script_directory), "resource", "img", "NSFW.jpg"
+            )
             nsfw_image = PIL.Image.open(nsfw_image).resize(image[0].size)
             image_np = np.array(image)
             _, has_nsfw_concept = self.run_safety_checker(image=image_np)

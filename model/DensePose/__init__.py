@@ -1,4 +1,3 @@
-
 import glob
 import os
 from random import randint
@@ -9,18 +8,18 @@ import cv2
 import numpy as np
 import torch
 from PIL import Image
-from densepose import add_densepose_config
-from densepose.vis.base import CompoundVisualizer
-from densepose.vis.densepose_results import DensePoseResultsFineSegmentationVisualizer
-from densepose.vis.extractor import create_extractor, CompoundExtractor
-from detectron2.config import get_cfg
-from detectron2.data.detection_utils import read_image
-from detectron2.engine.defaults import DefaultPredictor
+from densepose1 import add_densepose_config
+from densepose1.vis.base import CompoundVisualizer
+from densepose1.vis.densepose_results import DensePoseResultsFineSegmentationVisualizer
+from densepose1.vis.extractor import create_extractor, CompoundExtractor
+from detectron3.config import get_cfg
+from detectron3.data.detection_utils import read_image
+from detectron3.engine.defaults import DefaultPredictor
 
 
 class DensePose:
     """
-    DensePose used in this project is from Detectron2 (https://github.com/facebookresearch/detectron2).
+    DensePose used in this project is from detectron3 (https://github.com/facebookresearch/detectron2).
     These codes are modified from https://github.com/facebookresearch/detectron2/tree/main/projects/DensePose.
     The checkpoint is downloaded from https://github.com/facebookresearch/detectron2/blob/main/projects/DensePose/doc/DENSEPOSE_IUV.md#ModelZoo.
 
@@ -31,8 +30,8 @@ class DensePose:
 
     def __init__(self, model_path="./checkpoints/densepose_", device="cuda"):
         self.device = device
-        self.config_path = os.path.join(model_path, 'densepose_rcnn_R_50_FPN_s1x.yaml')
-        self.model_path = os.path.join(model_path, 'model_final_162be9.pkl')
+        self.config_path = os.path.join(model_path, "densepose_rcnn_R_50_FPN_s1x.yaml")
+        self.model_path = os.path.join(model_path, "model_final_162be9.pkl")
         self.visualizations = ["dp_segm"]
         self.VISUALIZERS = {"dp_segm": DensePoseResultsFineSegmentationVisualizer}
         self.min_score = 0.8
@@ -54,8 +53,11 @@ class DensePose:
     @staticmethod
     def _get_input_file_list(input_spec: str):
         if os.path.isdir(input_spec):
-            file_list = [os.path.join(input_spec, fname) for fname in os.listdir(input_spec)
-                         if os.path.isfile(os.path.join(input_spec, fname))]
+            file_list = [
+                os.path.join(input_spec, fname)
+                for fname in os.listdir(input_spec)
+                if os.path.isfile(os.path.join(input_spec, fname))
+            ]
         elif os.path.isfile(input_spec):
             file_list = [input_spec]
         else:
@@ -72,7 +74,7 @@ class DensePose:
                 cfg=cfg,
                 texture_atlas=texture_atlas,
                 texture_atlases_dict=texture_atlases_dict,
-                alpha=1.0
+                alpha=1.0,
             )
             visualizers.append(vis)
             extractor = create_extractor(vis)
@@ -98,7 +100,7 @@ class DensePose:
         data, box = data[0]
         x, y, w, h = [int(_) for _ in box[0].cpu().numpy()]
         i_array = data[0].labels[None].cpu().numpy()[0]
-        result[y:y + h, x:x + w] = i_array
+        result[y : y + h, x : x + w] = i_array
         result = Image.fromarray(result)
         result.save(context["out_fname"])
 
@@ -113,9 +115,14 @@ class DensePose:
         if not os.path.exists(tmp_path):
             os.makedirs(tmp_path)
 
-        image_path = os.path.join(tmp_path, f"{int(time.time())}-{self.device}-{randint(0, 100000)}.png")
+        image_path = os.path.join(
+            tmp_path, f"{int(time.time())}-{self.device}-{randint(0, 100000)}.png"
+        )
         if isinstance(image_or_path, str):
-            assert image_or_path.split(".")[-1] in ["jpg", "png"], "Only support jpg and png images."
+            assert image_or_path.split(".")[-1] in [
+                "jpg",
+                "png",
+            ], "Only support jpg and png images."
             shutil.copy(image_or_path, image_path)
         elif isinstance(image_or_path, Image.Image):
             image_or_path.save(image_path)
@@ -123,7 +130,9 @@ class DensePose:
             shutil.rmtree(tmp_path)
             raise TypeError("image_path must be str or PIL.Image.Image")
 
-        output_path = image_path.replace(".png", "_dense.png").replace(".jpg", "_dense.png")
+        output_path = image_path.replace(".png", "_dense.png").replace(
+            ".jpg", "_dense.png"
+        )
         w, h = Image.open(image_path).size
 
         file_list = self._get_input_file_list(image_path)
@@ -134,14 +143,18 @@ class DensePose:
             # resize
             if (_ := max(img.shape)) > resize:
                 scale = resize / _
-                img = cv2.resize(img, (int(img.shape[1] * scale), int(img.shape[0] * scale)))
+                img = cv2.resize(
+                    img, (int(img.shape[1] * scale), int(img.shape[0] * scale))
+                )
 
             with torch.no_grad():
                 outputs = self.predictor(img)["instances"]
                 try:
-                    self.execute_on_outputs(context, {"file_name": file_name, "image": img}, outputs)
+                    self.execute_on_outputs(
+                        context, {"file_name": file_name, "image": img}, outputs
+                    )
                 except Exception as e:
-                    null_gray = Image.new('L', (1, 1))
+                    null_gray = Image.new("L", (1, 1))
                     null_gray.save(output_path)
 
         dense_gray = Image.open(output_path).convert("L")
@@ -150,9 +163,8 @@ class DensePose:
         os.remove(image_path)
         os.remove(output_path)
 
-
         return dense_gray
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass
